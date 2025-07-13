@@ -14,6 +14,7 @@ from langchain.schema import Document
 import arxiv
 import requests
 import base64
+import streamlit.components.v1 as components
 
 # Load API Key
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
@@ -71,18 +72,36 @@ def preview_pdf(file_path):
         return "\n\n".join(page.extract_text() or "" for page in pdf.pages)
 
 # Show PDF in iframe
+
 def display_pdf(file_path):
+    user_agent = st.request.headers.get("user-agent", "").lower()
+    is_chrome = "chrome" in user_agent and "edg" not in user_agent and "firefox" not in user_agent
+
+    file_name = os.path.basename(file_path)
     with open(file_path, "rb") as f:
-        base64_pdf = base64.b64encode(f.read()).decode("utf-8")
-    pdf_display = f"""
+        pdf_bytes = f.read()
+
+    if is_chrome:
+        # Show download button for Chrome (since iframe is blocked)
+        st.download_button(
+            label="📄 View PDF (opens in browser)",
+            data=pdf_bytes,
+            file_name=file_name,
+            mime="application/pdf",
+        )
+    else:
+        # Show inline iframe for Firefox or other browsers
+        base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+        pdf_display = f"""
         <iframe
             src="data:application/pdf;base64,{base64_pdf}"
             width="100%"
             height="700"
             type="application/pdf">
         </iframe>
-    """
-    st.components.v1.html(pdf_display, height=700, scrolling=True)
+        """
+        components.html(pdf_display, height=700, scrolling=True)
+
 
 
 
