@@ -18,11 +18,6 @@ Welcome to your **AI Research Assistant**, a tool designed to streamline your ac
 - 🔍 Auto-clears FAISS index on every session for clean usage
 - 🌐 Streamlit-hosted PDF viewer (Firefox inline + Chrome-friendly download)
 
----
-
-## 📷 Screenshot
-
-![App Screenshot](https://user-images.githubusercontent.com/your-image-link.png)
 
 ---
 
