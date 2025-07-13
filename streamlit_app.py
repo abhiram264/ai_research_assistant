@@ -71,13 +71,19 @@ def preview_pdf(file_path):
         return "\n\n".join(page.extract_text() or "" for page in pdf.pages)
 
 # Show PDF in iframe
-def display_pdf_text(file_path):
-    with pdfplumber.open(file_path) as pdf:
-        for i, page in enumerate(pdf.pages):
-            text = page.extract_text()
-            if text:
-                st.markdown(f"##### 📄 Page {i+1}")
-                st.text(text)
+def display_pdf(file_path):
+    with open(file_path, "rb") as f:
+        base64_pdf = base64.b64encode(f.read()).decode("utf-8")
+    pdf_display = f"""
+        <iframe
+            src="data:application/pdf;base64,{base64_pdf}"
+            width="100%"
+            height="700"
+            type="application/pdf">
+        </iframe>
+    """
+    st.components.v1.html(pdf_display, height=700, scrolling=True)
+
 
 
 # Chunk PDFs (with abstract prioritization)
@@ -120,7 +126,7 @@ if st.session_state.mode == "upload":
                     tmp_file.write(uploaded_file.read())
                     pdf_path = tmp_file.name
                     st.session_state.selected_pdfs.append(pdf_path)
-                    display_pdf_text(pdf_path)
+                    display_pdf(pdf_path)
                     all_chunks.extend(process_pdf(pdf_path))
 
             st.success(f"✅ Processed {len(uploaded_files)} file(s)")
@@ -171,7 +177,7 @@ if st.session_state.mode == "loaded" and st.session_state.selected_pdfs:
     for pdf_path in st.session_state.selected_pdfs:
         file_name = os.path.basename(pdf_path)
         st.subheader(f"📘 Loaded File: `{file_name}`")
-        display_pdf_text(pdf_path)
+        display_pdf(pdf_path)
 
     if not st.session_state.qa_chain:
         all_chunks = []
