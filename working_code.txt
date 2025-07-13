@@ -1,0 +1,204 @@
+import os
+import tempfile
+import pdfplumber
+import streamlit as st
+from dotenv import load_dotenv
+from langchain_community.vectorstores import FAISS
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
+from langchain.chains import RetrievalQAWithSourcesChain
+from langchain_community.document_loaders import PyPDFLoader
+import arxiv
+import requests
+import base64
+
+# Load API Key
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+if not GOOGLE_API_KEY:
+    st.error("❌ GOOGLE_API_KEY not found in .env file")
+    st.stop()
+
+# Constants
+EMBED_DIR = "embeddings/faiss_index"
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+
+# Initialize Models
+embedding_model = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GOOGLE_API_KEY)
+chat_model = ChatGoogleGenerativeAI(model="models/gemini-1.5-flash", google_api_key=GOOGLE_API_KEY)
+
+st.set_page_config(page_title="AI Research Assistant", layout="wide")
+st.title("🤖 AI-Powered Research Paper Assistant")
+
+# Abstract
+st.markdown("""
+### 📄 Project Abstract
+This tool helps analyze research papers using Google Gemini + LangChain + FAISS.
+Upload a PDF or search via ArXiv, then ask questions directly!
+""")
+
+# Session State
+if "mode" not in st.session_state:
+    st.session_state.mode = None
+if "selected_pdfs" not in st.session_state:
+    st.session_state.selected_pdfs = []
+if "qa_chain" not in st.session_state:
+    st.session_state.qa_chain = None
+
+# Action Buttons
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    upload_pressed = st.button("📄 Upload PDFs (Multiple)", use_container_width=True)
+    search_pressed = st.button("🌐 Search Online (ArXiv)", use_container_width=True)
+
+if upload_pressed:
+    st.session_state.mode = "upload"
+elif search_pressed:
+    st.session_state.mode = "search"
+
+# PDF Text Preview
+def preview_pdf(file_path):
+    with pdfplumber.open(file_path) as pdf:
+        return "\n\n".join(page.extract_text() or "" for page in pdf.pages)
+
+# PDF Viewer
+def display_pdf(file_path):
+    with open(file_path, "rb") as f:
+        base64_pdf = base64.b64encode(f.read()).decode("utf-8")
+    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600px" type="application/pdf"></iframe>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
+
+# Process PDF to vector DB
+def process_pdf(file_path):
+    loader = PyPDFLoader(file_path)
+    docs = loader.load()
+    splitter = RecursiveCharacterTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP)
+    chunks = splitter.split_documents(docs)
+    return chunks
+
+# ArXiv Search & Download
+def search_arxiv(topic, max_results=5):
+    search = arxiv.Search(query=topic, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
+    return list(search.results())
+
+def download_arxiv_pdf(paper):
+    title = paper.title.strip().replace(" ", "_").replace("/", "_")
+    file_path = f"data/{title}.pdf"
+    response = requests.get(paper.pdf_url)
+    if response.status_code == 200 and response.content.startswith(b"%PDF"):
+        os.makedirs("data", exist_ok=True)
+        with open(file_path, "wb") as f:
+            f.write(response.content)
+        return file_path
+    return None
+
+# Upload Mode
+if st.session_state.mode == "upload":
+    st.markdown("---")
+    st.header("📄 Upload Multiple PDFs")
+    uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True)
+
+    if uploaded_files:
+        all_chunks = []
+        st.session_state.selected_pdfs = []
+
+        for uploaded_file in uploaded_files:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                tmp_file.write(uploaded_file.read())
+                pdf_path = tmp_file.name
+                st.session_state.selected_pdfs.append(pdf_path)
+                display_pdf(pdf_path)
+                chunks = process_pdf(pdf_path)
+                all_chunks.extend(chunks)
+
+        st.success(f"✅ Uploaded {len(uploaded_files)} files")
+
+        with st.spinner("Creating vector store from multiple PDFs..."):
+            vectorstore = FAISS.from_documents(all_chunks, embedding_model)
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+            st.session_state.qa_chain = RetrievalQAWithSourcesChain.from_chain_type(llm=chat_model, retriever=retriever)
+
+# ArXiv Mode
+elif st.session_state.mode == "search":
+    st.markdown("---")
+    st.header("🌐 Search Research Papers Online")
+    topic = st.text_input("🔍 Enter topic to search on ArXiv")
+
+    if topic:
+        with st.spinner("Searching ArXiv..."):
+            results = search_arxiv(topic)
+
+        if not results:
+            st.warning("No results found.")
+        else:
+            for i, paper in enumerate(results):
+                with st.expander(f"{i+1}. {paper.title}"):
+                    st.markdown(f"**Authors:** {', '.join(a.name for a in paper.authors)}")
+                    st.markdown(f"**Published:** {paper.published.date()}")
+                    if st.button(f"📅 Load Paper {i+1}", key=f"load_{i}"):
+                        pdf_path = download_arxiv_pdf(paper)
+                        if pdf_path:
+                            st.session_state.selected_pdfs = [pdf_path]
+                            st.session_state.qa_chain = None
+                            st.session_state.mode = "loaded"
+                            st.rerun()
+
+# Loaded PDF Mode
+if st.session_state.mode == "loaded" and st.session_state.selected_pdfs:
+    st.markdown("---")
+    st.subheader("📄 Loaded PDF Viewer")
+    for pdf_path in st.session_state.selected_pdfs:
+        display_pdf(pdf_path)
+
+    if st.session_state.qa_chain is None:
+        all_chunks = []
+        with st.spinner("Embedding & loading model from PDFs..."):
+            for pdf_path in st.session_state.selected_pdfs:
+                chunks = process_pdf(pdf_path)
+                all_chunks.extend(chunks)
+            vectorstore = FAISS.from_documents(all_chunks, embedding_model)
+            retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+            st.session_state.qa_chain = RetrievalQAWithSourcesChain.from_chain_type(llm=chat_model, retriever=retriever)
+
+    user_question = st.text_input("💬 Ask a question across uploaded papers")
+    if user_question:
+        with st.spinner("Generating answer with references..."):
+            response = st.session_state.qa_chain.invoke({"question": user_question})
+            st.markdown("#### 🧠 Answer")
+            st.write(response['answer'])
+            if response.get("sources"):
+                st.markdown("#### 🔗 Sources")
+                for src in response['sources'].split("\n"):
+                    st.write(f"- {src}")
+
+    # Summarization Options
+    st.markdown("---")
+    st.subheader("🗘️ Summarize PDFs")
+    summary_option = st.radio("Choose summary type:", ["Short Summary", "Detailed Summary", "Summary by Sections"])
+
+    if st.button("🗏 Summarize this PDF(s)"):
+        all_text = ""
+        for pdf_path in st.session_state.selected_pdfs:
+            all_text += preview_pdf(pdf_path) + "\n"
+
+        summary_prompt = {
+            "Short Summary": "Give a concise summary of the following research papers:",
+            "Detailed Summary": "Give a detailed summary with insights and main points from the following research papers:",
+            "Summary by Sections": "Summarize the following research papers section by section or chapter by chapter:",
+        }[summary_option]
+
+        with st.spinner("Generating summary..."):
+            response = chat_model.invoke(summary_prompt + "\n" + all_text)
+            st.markdown("#### 📚 Summary")
+            if isinstance(response, dict) and "content" in response:
+                st.write(response["content"])
+            elif hasattr(response, "content"):
+                st.write(response.content)
+            else:
+                st.write(response)
+
+# Footer
+st.markdown("---")
+st.caption("🧠 Built with LangChain + Gemini + FAISS + Streamlit")
