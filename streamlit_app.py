@@ -73,7 +73,6 @@ def preview_pdf(file_path):
 
 # Show PDF in iframe
 
-
 def display_pdf(file_path):
     file_name = os.path.basename(file_path)
 
@@ -82,24 +81,26 @@ def display_pdf(file_path):
 
     base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
 
-    # Offer fallback download button
+    # Button to download the PDF (works on all browsers)
     st.download_button(
-        label="📄 View PDF in new tab (recommended for Chrome)",
+        label="📥 Download Research Paper",
         data=pdf_bytes,
         file_name=file_name,
         mime="application/pdf",
     )
 
-    # Inline iframe (will work in Firefox & some environments)
-    pdf_display = f"""
-        <iframe
-            src="data:application/pdf;base64,{base64_pdf}"
-            width="100%"
-            height="700"
-            type="application/pdf">
-        </iframe>
-    """
-    components.html(pdf_display, height=700, scrolling=True)
+    # Button to view PDF inline (Firefox recommended)
+    if st.button("👁️ View Research Paper (Firefox only)"):
+        pdf_display = f"""
+            <iframe
+                src="data:application/pdf;base64,{base64_pdf}"
+                width="100%"
+                height="700"
+                type="application/pdf">
+            </iframe>
+        """
+        components.html(pdf_display, height=700, scrolling=True)
+
 
 
 
