@@ -9,3 +9,5 @@ langchain-community>=0.0.30
 langchain-google-genai>=0.0.7
 
 faiss-cpu>=1.7.4
+pypdf>=3.0.0
+
