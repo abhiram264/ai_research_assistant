@@ -73,34 +73,34 @@ def preview_pdf(file_path):
 
 # Show PDF in iframe
 
-def display_pdf(file_path):
-    user_agent = st.request.headers.get("user-agent", "").lower()
-    is_chrome = "chrome" in user_agent and "edg" not in user_agent and "firefox" not in user_agent
 
+def display_pdf(file_path):
     file_name = os.path.basename(file_path)
+
     with open(file_path, "rb") as f:
         pdf_bytes = f.read()
 
-    if is_chrome:
-        # Show download button for Chrome (since iframe is blocked)
-        st.download_button(
-            label="📄 View PDF (opens in browser)",
-            data=pdf_bytes,
-            file_name=file_name,
-            mime="application/pdf",
-        )
-    else:
-        # Show inline iframe for Firefox or other browsers
-        base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
-        pdf_display = f"""
+    base64_pdf = base64.b64encode(pdf_bytes).decode("utf-8")
+
+    # Offer fallback download button
+    st.download_button(
+        label="📄 View PDF in new tab (recommended for Chrome)",
+        data=pdf_bytes,
+        file_name=file_name,
+        mime="application/pdf",
+    )
+
+    # Inline iframe (will work in Firefox & some environments)
+    pdf_display = f"""
         <iframe
             src="data:application/pdf;base64,{base64_pdf}"
             width="100%"
             height="700"
             type="application/pdf">
         </iframe>
-        """
-        components.html(pdf_display, height=700, scrolling=True)
+    """
+    components.html(pdf_display, height=700, scrolling=True)
+
 
 
 
