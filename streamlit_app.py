@@ -16,8 +16,8 @@ import requests
 import base64
 
 # Load API Key
-load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+
 
 if not GOOGLE_API_KEY:
     st.error("❌ GOOGLE_API_KEY not found in .env file")
